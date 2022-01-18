@@ -174,9 +174,9 @@ def main(args):
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
         from retina.dataset_retina import dataset_retina30k
-        train_path = os.path.join(args.data_path,"Training_Set")
+        train_path = args.data_path
         dataset_train = dataset_retina30k(train_path, transform=transform_train,train=True)
-        test_path = os.path.join(args.data_path,"Test_Set")
+        test_path = args.data_path
         dataset_val = dataset_retina30k(test_path, transform=transform_val,train=False)
     else:
         print("dataset %s is not supported!"%args.dataset)
