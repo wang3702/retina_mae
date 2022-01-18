@@ -25,7 +25,7 @@ import torchvision.datasets as datasets
 
 import timm
 
-assert timm.__version__ == "0.3.2" # version check
+#assert timm.__version__ == "0.3.2" # version check
 from timm.models.layers import trunc_normal_
 
 import util.misc as misc
@@ -46,6 +46,7 @@ def get_args_parser():
     parser.add_argument('--epochs', default=90, type=int)
     parser.add_argument('--accum_iter', default=1, type=int,
                         help='Accumulate gradient iterations (for increasing the effective batch size under memory constraints)')
+
 
     # Model parameters
     parser.add_argument('--model', default='vit_large_patch16', type=str, metavar='MODEL',
@@ -77,6 +78,7 @@ def get_args_parser():
     # Dataset parameters
     parser.add_argument('--data_path', default='/datasets01/imagenet_full_size/061417/', type=str,
                         help='dataset path')
+    parser.add_argument("--dataset",default="imagenet",type=str,help="dataset name")
     parser.add_argument('--nb_classes', default=1000, type=int,
                         help='number of the classification types')
 
@@ -129,20 +131,56 @@ def main(args):
     cudnn.benchmark = True
 
     # linear probe: weak augmentation
-    transform_train = transforms.Compose([
-            RandomResizedCrop(224, interpolation=3),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
-    transform_val = transforms.Compose([
-            transforms.Resize(256, interpolation=3),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
-    dataset_train = datasets.ImageFolder(os.path.join(args.data_path, 'train'), transform=transform_train)
-    dataset_val = datasets.ImageFolder(os.path.join(args.data_path, 'val'), transform=transform_val)
-    print(dataset_train)
-    print(dataset_val)
+    if args.dataset=='imagenet':
+        transform_train = transforms.Compose([
+                RandomResizedCrop(224, interpolation=3),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+        transform_val = transforms.Compose([
+                transforms.Resize(256, interpolation=3),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+        dataset_train = datasets.ImageFolder(os.path.join(args.data_path, 'train'), transform=transform_train)
+        dataset_val = datasets.ImageFolder(os.path.join(args.data_path, 'val'), transform=transform_val)
+        print(dataset_train)
+        print(dataset_val)
+    elif args.dataset=='retina':
+        transform_train = transforms.Compose([
+                RandomResizedCrop(224, interpolation=3),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+        transform_val = transforms.Compose([
+                transforms.Resize(256, interpolation=3),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+        from retina.dataset_retina import dataset_retina
+        train_path = os.path.join(args.data_path,"Training_Set")
+        dataset_train = dataset_retina(train_path, transform=transform_train,sex=True)
+        test_path = os.path.join(args.data_path,"Test_Set")
+        dataset_val = dataset_retina(test_path, transform=transform_val,sex=True)
+    elif args.dataset =='retina30k':
+        transform_train = transforms.Compose([
+                RandomResizedCrop(224, interpolation=3),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+        transform_val = transforms.Compose([
+                transforms.Resize(256, interpolation=3),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+        from retina.dataset_retina import dataset_retina30k
+        train_path = os.path.join(args.data_path,"Training_Set")
+        dataset_train = dataset_retina30k(train_path, transform=transform_train,train=True)
+        test_path = os.path.join(args.data_path,"Test_Set")
+        dataset_val = dataset_retina30k(test_path, transform=transform_val,train=False)
+    else:
+        print("dataset %s is not supported!"%args.dataset)
+        exit()
 
     if True:  # args.distributed:
         num_tasks = misc.get_world_size()
