@@ -142,7 +142,7 @@ def evaluate_koniq(data_loader, model, device):
     rho_s, _ = spearmanr(np.squeeze(pred_epoch), np.squeeze(labels_epoch))
     rho_p, _ = pearsonr(np.squeeze(pred_epoch), np.squeeze(labels_epoch))
 
-    print('*[train] epoch:%d / SROCC:%4f / PLCC:%4f' % (epoch+1, rho_s, rho_p))
+    print('*[test] / SROCC:%4f / PLCC:%4f' % ( rho_s, rho_p))
 
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 # utils
