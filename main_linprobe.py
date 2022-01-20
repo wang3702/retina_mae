@@ -178,6 +178,23 @@ def main(args):
         dataset_train = dataset_retina30k(train_path, transform=transform_train,train=True)
         test_path = args.data_path
         dataset_val = dataset_retina30k(test_path, transform=transform_val,train=False)
+    elif args.dataset == 'koniq':
+        transform_train = transforms.Compose([
+                RandomResizedCrop(224, interpolation=3),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+        transform_val = transforms.Compose([
+                transforms.Resize(256, interpolation=3),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+        from koniq.koniq_dataset import IQADataset
+        txt_file_name = os.path.join(os.getcwd(),"koniq")
+        txt_file_name = os.path.join(txt_file_name,"dataset_list.txt")
+        data_path =args.data_path
+        dataset_train = IQADataset(data_path, txt_file_name, transform_train,1)
+        dataset_val = IQADataset(data_path, txt_file_name, transform_val,0)
     else:
         print("dataset %s is not supported!"%args.dataset)
         exit()
@@ -257,7 +274,14 @@ def main(args):
 
     # for linear prob only
     # hack: revise model's head with BN
-    model.head = torch.nn.Sequential(torch.nn.BatchNorm1d(model.head.in_features, affine=False, eps=1e-6), model.head)
+    if args.dataset=='koniq':
+        model.head       =nn.Sequential(
+            nn.Linear(model.head.in_features, model.head.in_features),
+            nn.GELU(),
+            nn.Linear(model.head.in_features, 1)
+        )
+    else:
+        model.head = torch.nn.Sequential(torch.nn.BatchNorm1d(model.head.in_features, affine=False, eps=1e-6), model.head)
     # freeze all but the head
     for _, p in model.named_parameters():
         p.requires_grad = False
@@ -290,8 +314,10 @@ def main(args):
     optimizer = LARS(model_without_ddp.head.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     print(optimizer)
     loss_scaler = NativeScaler()
-
-    criterion = torch.nn.CrossEntropyLoss()
+    if args.dataset=='koniq':
+        criterion = torch.nn.L1Loss()
+    else:
+        criterion = torch.nn.CrossEntropyLoss()
 
     print("criterion = %s" % str(criterion))
 
@@ -308,19 +334,32 @@ def main(args):
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             data_loader_train.sampler.set_epoch(epoch)
-        train_stats = train_one_epoch(
+        if args.dataset=='koniq':
+            from koniq.train_koniq_epoch import train_koniq_epoch
+            train_stats = train_koniq_epoch(
+            model, criterion, data_loader_train,
+            optimizer, device, epoch,loss_scaler,
+            log_writer=log_writer,
+            args=args
+            )
+        else:
+            train_stats = train_one_epoch(
             model, criterion, data_loader_train,
             optimizer, device, epoch, loss_scaler,
             max_norm=None,
             log_writer=log_writer,
             args=args
-        )
+            )
         if args.output_dir:
             misc.save_model(
                 args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                 loss_scaler=loss_scaler, epoch=epoch)
-
-        test_stats = evaluate(data_loader_val, model, device)
+        with torch.no_grad():
+            if args.dataset=='koniq':
+                from koniq.train_koniq_epoch import evaluate_koniq
+                test_stats = evaluate_koniq(data_loader_val, model, device)
+            else:
+                test_stats = evaluate(data_loader_val, model, device)
         print(f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%")
         max_accuracy = max(max_accuracy, test_stats["acc1"])
         print(f'Max accuracy: {max_accuracy:.2f}%')
