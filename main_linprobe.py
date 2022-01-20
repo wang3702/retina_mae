@@ -275,7 +275,7 @@ def main(args):
     # for linear prob only
     # hack: revise model's head with BN
     if args.dataset=='koniq':
-        model.head       =nn.Sequential(
+        model.head       =torch.nn.Sequential(
             nn.Linear(model.head.in_features, model.head.in_features),
             nn.GELU(),
             nn.Linear(model.head.in_features, 1)
