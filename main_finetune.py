@@ -23,10 +23,11 @@ from torch.utils.tensorboard import SummaryWriter
 
 import timm
 
-assert timm.__version__ == "0.3.2" # version check
+#assert timm.__version__ == "0.3.2" # version check
 from timm.models.layers import trunc_normal_
 from timm.data.mixup import Mixup
 from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
+import torchvision.transforms as transforms
 
 import util.lr_decay as lrd
 import util.misc as misc
@@ -152,6 +153,8 @@ def get_args_parser():
     parser.add_argument('--dist_url', default='env://',
                         help='url used to set up distributed training')
 
+    parser.add_argument("--dataset",default="imagenet",type=str,help="dataset name")
+
     return parser
 
 
@@ -169,10 +172,62 @@ def main(args):
     np.random.seed(seed)
 
     cudnn.benchmark = True
-
-    dataset_train = build_dataset(is_train=True, args=args)
-    dataset_val = build_dataset(is_train=False, args=args)
-
+    if args.dataset=='imagenet':
+        dataset_train = build_dataset(is_train=True, args=args)
+        dataset_val = build_dataset(is_train=False, args=args)
+    elif args.dataset=='retina':
+        transform_train = transforms.Compose([
+                RandomResizedCrop(224, interpolation=3),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+        transform_val = transforms.Compose([
+                transforms.Resize(256, interpolation=3),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+        from retina.dataset_retina import dataset_retina
+        train_path = os.path.join(args.data_path,"Training_Set")
+        dataset_train = dataset_retina(train_path, transform=transform_train,sex=True)
+        test_path = os.path.join(args.data_path,"Test_Set")
+        dataset_val = dataset_retina(test_path, transform=transform_val,sex=True)
+    elif args.dataset =='retina30k':
+        from util.crop import RandomResizedCrop
+        transform_train = transforms.Compose([
+                RandomResizedCrop(224, interpolation=3),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+        transform_val = transforms.Compose([
+                transforms.Resize(256, interpolation=3),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+        from retina.dataset_retina import dataset_retina30k
+        train_path = args.data_path
+        dataset_train = dataset_retina30k(train_path, transform=transform_train,train=True)
+        test_path = args.data_path
+        dataset_val = dataset_retina30k(test_path, transform=transform_val,train=False)
+    elif args.dataset == 'koniq':
+        transform_train = transforms.Compose([
+                #RandomResizedCrop(224, interpolation=3),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+        transform_val = transforms.Compose([
+                #transforms.Resize(256, interpolation=3),
+                #transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+        from koniq.koniq_dataset import IQADataset
+        txt_file_name = os.path.join(os.getcwd(),"koniq")
+        txt_file_name = os.path.join(txt_file_name,"dataset_list.txt")
+        data_path =args.data_path
+        dataset_train = IQADataset(data_path, txt_file_name, transform_train,1)
+        dataset_val = IQADataset(data_path, txt_file_name, transform_val,0)
+    else:
+        print("dataset %s is not supported!"%args.dataset)
+        exit()
     if True:  # args.distributed:
         num_tasks = misc.get_world_size()
         global_rank = misc.get_rank()
@@ -255,6 +310,12 @@ def main(args):
 
         # manually initialize fc layer
         trunc_normal_(model.head.weight, std=2e-5)
+    if args.dataset=='koniq':
+        model.head       =torch.nn.Sequential(
+           # nn.Linear(model.head.in_features, model.head.in_features),
+            #nn.GELU(),
+            nn.Linear(model.head.in_features, 1)
+        )
 
     model.to(device)
 
@@ -286,14 +347,16 @@ def main(args):
     )
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr)
     loss_scaler = NativeScaler()
-
-    if mixup_fn is not None:
-        # smoothing is handled with mixup label transform
-        criterion = SoftTargetCrossEntropy()
-    elif args.smoothing > 0.:
-        criterion = LabelSmoothingCrossEntropy(smoothing=args.smoothing)
+    if args.dataset=='koniq':
+        criterion = torch.nn.L1Loss()
     else:
-        criterion = torch.nn.CrossEntropyLoss()
+        if mixup_fn is not None:
+            # smoothing is handled with mixup label transform
+            criterion = SoftTargetCrossEntropy()
+        elif args.smoothing > 0.:
+            criterion = LabelSmoothingCrossEntropy(smoothing=args.smoothing)
+        else:
+            criterion = torch.nn.CrossEntropyLoss()
 
     print("criterion = %s" % str(criterion))
 
@@ -310,24 +373,37 @@ def main(args):
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             data_loader_train.sampler.set_epoch(epoch)
-        train_stats = train_one_epoch(
+        if args.dataset=='koniq':
+            from koniq.train_koniq_epoch import train_koniq_epoch
+            train_stats = train_koniq_epoch(
             model, criterion, data_loader_train,
-            optimizer, device, epoch, loss_scaler,
-            args.clip_grad, mixup_fn,
+            optimizer, device, epoch,loss_scaler,
             log_writer=log_writer,
             args=args
-        )
+            )
+        else:
+            train_stats = train_one_epoch(
+                model, criterion, data_loader_train,
+                optimizer, device, epoch, loss_scaler,
+                args.clip_grad, mixup_fn,
+                log_writer=log_writer,
+                args=args
+            )
         if args.output_dir:
             misc.save_model(
                 args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                 loss_scaler=loss_scaler, epoch=epoch)
+        with torch.no_grad():
+            if args.dataset=='koniq':
+                from koniq.train_koniq_epoch import evaluate_koniq
+                test_stats = evaluate_koniq(data_loader_val, model, device)
+            else:
+                test_stats = evaluate(data_loader_val, model, device)
+                print(f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%")
+                max_accuracy = max(max_accuracy, test_stats["acc1"])
+                print(f'Max accuracy: {max_accuracy:.2f}%')
 
-        test_stats = evaluate(data_loader_val, model, device)
-        print(f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%")
-        max_accuracy = max(max_accuracy, test_stats["acc1"])
-        print(f'Max accuracy: {max_accuracy:.2f}%')
-
-        if log_writer is not None:
+        if log_writer is not None and args.dataset!='koniq':
             log_writer.add_scalar('perf/test_acc1', test_stats['acc1'], epoch)
             log_writer.add_scalar('perf/test_acc5', test_stats['acc5'], epoch)
             log_writer.add_scalar('perf/test_loss', test_stats['loss'], epoch)
