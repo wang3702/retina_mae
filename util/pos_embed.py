@@ -86,7 +86,7 @@ def interpolate_pos_embed(model, checkpoint_model):
         new_size2 = model.patch_embed.img_size[1]
         # class_token and dist_token are kept unchanged
         if orig_size != new_size1 or orig_size!=new_size2:
-            print("Position interpolate from %dx%d to %dx%d" % (orig_size, orig_size, new_size, new_size))
+            print("Position interpolate from %dx%d to %dx%d" % (orig_size, orig_size, new_size1, new_size2))
             extra_tokens = pos_embed_checkpoint[:, :num_extra_tokens]
             # only the position tokens are interpolated
             pos_tokens = pos_embed_checkpoint[:, num_extra_tokens:]
