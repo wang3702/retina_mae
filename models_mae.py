@@ -11,6 +11,7 @@
 
 from functools import partial
 
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -146,6 +147,37 @@ class MaskedAutoencoderViT(nn.Module):
         mask = torch.gather(mask, dim=1, index=ids_restore)
 
         return x_masked, mask, ids_restore
+    def random_masking_2D(self, x, mask_ratio):
+        N, L, D = x.shape  # batch, length, dim
+        dim_keep = int(L*(1 - mask_ratio))
+
+        L_1D = int(np.sqrt(L))
+        N, L, D = x.shape  # batch, length, dim
+        len_keep = int(L * (1 - mask_ratio)**2)
+
+        noise =torch.arange(0,L, device=x.device) #torch.rand(N, L, device=x.device)  # noise in [0, 1]
+        noise = noise.view(L_1D,L_1D)
+        noise[dim_keep:,dim_keep:]=L*L
+        noise = noise.view(-1)
+        noise = noise.unsqueeze(0).repeat(N,1)
+
+
+        # sort noise for each sample
+        ids_shuffle = torch.argsort(noise, dim=1)  # ascend: small is keep, large is remove
+        ids_restore = torch.argsort(ids_shuffle, dim=1)
+
+        # keep the first subset
+        ids_keep = ids_shuffle[:, :len_keep]
+        x_masked = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
+
+        # generate the binary mask: 0 is keep, 1 is remove
+        mask = torch.ones([N, L], device=x.device)
+        mask[:, :len_keep] = 0
+        # unshuffle to get the binary mask
+        mask = torch.gather(mask, dim=1, index=ids_restore)
+
+        return x_masked, mask, ids_restore
+
 
     def forward_encoder(self, x, mask_ratio):
         # embed patches
@@ -168,6 +200,26 @@ class MaskedAutoencoderViT(nn.Module):
         x = self.norm(x)
 
         return x, mask, ids_restore
+
+    def forward_mask(self,imgs,mask_ratio):
+        x = self.patch_embed(imgs)
+
+        # add pos embed w/o cls token
+        x = x + self.pos_embed[:, 1:, :]
+        x, mask, ids_restore = self.random_masking_2D(x, mask_ratio)
+        # append cls token
+        cls_token = self.cls_token + self.pos_embed[:, :1, :]
+        cls_tokens = cls_token.expand(x.shape[0], -1, -1)
+        x = torch.cat((cls_tokens, x), dim=1)
+
+        # apply Transformer blocks
+        for blk in self.blocks:
+            x = blk(x)
+        x = self.norm(x)
+        latent = x
+        pred = self.forward_decoder(latent, ids_restore)  # [N, L, p*p*3]
+        loss = self.forward_loss(imgs, pred, mask)
+        return loss, pred, mask
 
     def forward_decoder(self, x, ids_restore):
         # embed tokens
