@@ -149,12 +149,13 @@ class MaskedAutoencoderViT(nn.Module):
         return x_masked, mask, ids_restore
     def random_masking_2D(self, x, mask_ratio):
         N, L, D = x.shape  # batch, length, dim
-        dim_keep = int(L*(1 - mask_ratio))
+
 
         L_1D = int(np.sqrt(L))
         N, L, D = x.shape  # batch, length, dim
-        len_keep = int(L * ((1 - mask_ratio)**2))
 
+        dim_keep = int(L_1D*(1 - mask_ratio))
+        len_keep = dim_keep**2
         noise =torch.arange(0,L, device=x.device) #torch.rand(N, L, device=x.device)  # noise in [0, 1]
         noise = noise.view(L_1D,L_1D)
         noise[dim_keep:,:]=L*L
