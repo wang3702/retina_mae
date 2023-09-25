@@ -153,11 +153,12 @@ class MaskedAutoencoderViT(nn.Module):
 
         L_1D = int(np.sqrt(L))
         N, L, D = x.shape  # batch, length, dim
-        len_keep = int(L * (1 - mask_ratio)**2)
+        len_keep = int(L * ((1 - mask_ratio)**2))
 
         noise =torch.arange(0,L, device=x.device) #torch.rand(N, L, device=x.device)  # noise in [0, 1]
         noise = noise.view(L_1D,L_1D)
-        noise[dim_keep:,dim_keep:]=L*L
+        noise[dim_keep:,:]=L*L
+        noise[:,dim_keep:]=L*L
         noise = noise.view(-1)
         noise = noise.unsqueeze(0).repeat(N,1)
 
