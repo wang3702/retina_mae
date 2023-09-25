@@ -161,7 +161,7 @@ class MaskedAutoencoderViT(nn.Module):
         noise[:,dim_keep:]=L*L
         noise = noise.view(-1)
         noise = noise.unsqueeze(0).repeat(N,1)
-
+        print(noise)
 
         # sort noise for each sample
         ids_shuffle = torch.argsort(noise, dim=1)  # ascend: small is keep, large is remove
@@ -169,6 +169,7 @@ class MaskedAutoencoderViT(nn.Module):
 
         # keep the first subset
         ids_keep = ids_shuffle[:, :len_keep]
+        print("remove",ids_shuffle[0,len_keep:])
         x_masked = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
 
         # generate the binary mask: 0 is keep, 1 is remove
